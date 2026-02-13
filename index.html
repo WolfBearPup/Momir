@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Summon a Creature (CMC 1–20)</title>
+
+  <style>
+    :root{
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color-scheme: dark;
+      --bg0:#06070a;
+      --bg1:#0b0c10;
+      --glass: rgba(255,255,255,0.07);
+      --glass2: rgba(255,255,255,0.10);
+      --stroke: rgba(255,255,255,0.16);
+      --stroke2: rgba(255,255,255,0.26);
+      --accent: rgba(62,95,255,0.75);
+      --warn: rgba(224,47,31,0.95);
+      --text: rgba(255,255,255,0.96);
+      --muted: rgba(255,255,255,0.72);
+      --muted2: rgba(255,255,255,0.58);
+      --radius-lg: 18px;
+      --radius-md: 14px;
+      --radius-sm: 12px;
+      --shadow: 0 18px 40px rgba(0,0,0,0.55);
+    }
+
+    html, body { height: 100%; }
+    body{
+      margin:0;
+      background: radial-gradient(1200px 700px at 50% 25%, rgba(62,95,255,0.22), rgba(0,0,0,0) 60%),
+                  radial-gradient(900px 600px at 20% 75%, rgba(250,201,0,0.10), rgba(0,0,0,0) 55%),
+                  linear-gradient(var(--bg0), var(--bg1));
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+      touch-action: manipulation;
+    }
+
+    /* Safe-area helpers (iPhone notch/home indicator) */
+    .safePad {
+      padding-top: calc(14px + env(safe-area-inset-top));
+      padding-right: calc(14px + env(safe-area-inset-right));
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+      padding-left: calc(14px + env(safe-area-inset-left));
+    }
+
+    /* ---------- Overlay (full-screen number picker) ---------- */
+    .overlay{
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      min-height: 100svh; /* better on iOS than 100vh */
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      gap: 14px;
+      transition: opacity 360ms ease, transform 360ms ease;
+      will-change: opacity, transform;
+    }
+    .overlay.hidden{
+      opacity:0;
+      pointer-events:none;
+      transform: scale(1.02);
+    }
+
+    .header{
+      text-align:center;
+      margin: 0 auto;
+      max-width: 520px;
+    }
+    .title{
+      margin:0;
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: 0.2px;
+    }
+    .subtitle{
+      margin: 6px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    .hint{
+      margin: 8px 0 0;
+      font-size: 12px;
+      color: var(--muted2);
+      line-height: 1.35;
+    }
+    .hint .warnWord{
+      color: var(--warn);
+      font-weight: 900;
+      letter-spacing: 0.2px;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(4, 1fr); /* 4x5 on iPhone */
+      gap: 12px;
+      width: 100%;
+      max-width: 520px;
+      margin: 6px auto 0;
+    }
+
+    .grid button{
+      appearance:none;
+      border: 1px solid var(--stroke);
+      background: var(--glass);
+      color: var(--text);
+      border-radius: 16px;
+      height: 72px;                 /* comfy tap target on iPhone */
+      font-size: clamp(24px, 6vw, 36px);
+      font-weight: 950;
+      letter-spacing: 0.6px;
+      backdrop-filter: blur(8px);
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.25);
+      user-select: none;
+    }
+    .grid button:active{
+      transform: scale(0.97);
+      background: var(--glass2);
+      border-color: var(--stroke2);
+    }
+
+    /* Red tint for MVs that have no results (auto-updated) */
+    .grid button.noResult{
+      background: rgba(224,47,31,0.11);
+      border-color: rgba(224,47,31,0.40);
+      box-shadow: 0 10px 20px rgba(224,47,31,0.08), 0 10px 20px rgba(0,0,0,0.25);
+    }
+
+    .footerNote{
+      text-align:center;
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted2);
+    }
+
+    /* ---------- Stage (dramatic reveal) ---------- */
+    .stage{
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      min-height: 100svh;
+      display:flex;
+      justify-content:center;
+      align-items: stretch;
+      opacity:0;
+      transform: translateY(18px);
+      transition: opacity 360ms ease, transform 360ms ease;
+      will-change: opacity, transform;
+    }
+    .stage.visible{
+      opacity:1;
+      transform: translateY(0);
+    }
+
+    .panel{
+      width: 100%;
+      max-width: 430px;
+      display:flex;
+      flex-direction:column;
+      gap: 10px;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--stroke);
+      background: var(--glass);
+      backdrop-filter: blur(8px);
+      font-size: 13px;
+      font-weight: 850;
+      color: var(--text);
+      opacity: 0.96;
+      user-select:none;
+    }
+
+    .btn{
+      appearance:none;
+      border: 1px solid var(--stroke);
+      background: var(--glass);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 11px 12px;
+      font-size: 13px;
+      font-weight: 900;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+      white-space: nowrap;
+      user-select:none;
+    }
+    .btn:active{
+      transform: scale(0.98);
+      background: var(--glass2);
+      border-color: var(--stroke2);
+    }
+
+    .cardWrap{
+      flex: 1;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      gap: 10px;
+    }
+
+    .meta{
+      display:flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .name{
+      font-size: 16px;
+      font-weight: 950;
+      letter-spacing: 0.2px;
+      line-height: 1.15;
+    }
+    .mv{
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+      font-weight: 850;
+    }
+
+    .imgFrame{
+      border-radius: var(--radius-lg);
+      overflow:hidden;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.04);
+      box-shadow: var(--shadow);
+      /* Keep it within iPhone screen */
+      max-height: 70svh;
+      aspect-ratio: 63 / 88; /* MTG-ish ratio */
+    }
+
+    img{
+      width: 100%;
+      height: 100%;
+      display:block;
+      object-fit: contain;
+      transform-origin: 50% 60%;
+    }
+
+    /* Reveal animation */
+    .reveal{
+      animation: reveal 720ms cubic-bezier(.16,.84,.27,1) both;
+    }
+    @keyframes reveal{
+      0%{
+        opacity:0;
+        transform: scale(0.86) rotate(-2deg);
+        filter: blur(16px) brightness(0.75);
+      }
+      60%{
+        opacity:1;
+        transform: scale(1.02) rotate(0.4deg);
+        filter: blur(2px) brightness(1);
+      }
+      100%{
+        opacity:1;
+        transform: scale(1) rotate(0deg);
+        filter:none;
+      }
+    }
+
+    /* Loading shimmer */
+    .loadingFrame{
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 320px;
+    }
+    .loadingFrame::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background: linear-gradient(110deg,
+        rgba(255,255,255,0.02),
+        rgba(255,255,255,0.10),
+        rgba(255,255,255,0.02)
+      );
+      transform: translateX(-60%);
+      animation: shimmer 1.15s ease-in-out infinite;
+    }
+    @keyframes shimmer{
+      0%   { transform: translateX(-60%); opacity: 0.55; }
+      50%  { opacity: 0.95; }
+      100% { transform: translateX(60%);  opacity: 0.55; }
+    }
+
+    .status{
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    a{
+      color: rgba(140,174,248,0.98);
+      text-decoration:none;
+      font-weight: 900;
+    }
+
+    @media (prefers-reduced-motion: reduce){
+      .overlay, .stage { transition: none; }
+      .reveal { animation: none; }
+      .loadingFrame::before { animation: none; }
+    }
+
+    /* Small phones: tighten spacing a bit */
+    @media (max-height: 720px){
+      .grid button{ height: 66px; }
+      .imgFrame{ max-height: 66svh; }
+      .title{ font-size: 20px; }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Full-screen number overlay -->
+  <section id="overlay" class="overlay safePad" aria-label="CMC number overlay">
+    <div class="header">
+      <h1 class="title">Choose a CMC to Summon</h1>
+      <p class="subtitle">Tap 1–20 to pull a random creature with that mana value.</p>
+      <p class="hint"><span class="warnWord">Red-tinted</span> numbers have no matching creatures.</p>
+    </div>
+
+    <div id="cmcGrid" class="grid" role="group" aria-label="CMC buttons"></div>
+
+    <div class="footerNote">Tip: tap <b>Pick another</b> to return to numbers.</div>
+  </section>
+
+  <!-- Card stage -->
+  <main id="stage" class="stage safePad" aria-live="polite">
+    <div class="panel">
+      <div class="topbar">
+        <button id="backBtn" class="btn" type="button">Pick another</button>
+        <div id="cmcPill" class="pill">CMC: —</div>
+      </div>
+
+      <div class="cardWrap">
+        <div class="meta">
+          <div id="cardName" class="name">Waiting…</div>
+          <div id="cardMV" class="mv"></div>
+        </div>
+
+        <div class="imgFrame" id="frame">
+          <div id="loadingShell" class="loadingFrame" style="display:none;"></div>
+          <img id="cardImg" alt="" />
+        </div>
+
+        <div id="statusLine" class="status"></div>
+        <div class="status">
+          <a id="scryfallLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">
+            View on Scryfall
+          </a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // Reduced from your original app
+    const scryfallRandomURI = "https://api.scryfall.com/cards/random?format=json&q=";
+    const scryfallSearchURI = "https://api.scryfall.com/cards/search?order=released&unique=cards&q=";
+
+    const creatureQuery = "type%3Acreature+";
+    const genericQuery  = "(game%3Apaper)+lang%3Aenglish+(-is%3Afunny)+is%3Afirstprinting+F%3AV+-o%3Adraft+mv%3D";
+
+    let inFlight = false;
+    let buttonsByMV = {};
+
+    // Cache availability checks to avoid 20 API hits on every load (24h TTL)
+    const AVAIL_CACHE_KEY = "mvCreatureAvailability_v1";
+    const AVAIL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+    // ✅ Shows useful "no results" messages by reading Scryfall's error JSON
+    async function fetchNewCard(url) {
+      const response = await fetch(url);
+
+      const text = await response.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch {}
+
+      if (!response.ok) {
+        throw new Error(data?.details ?? `Scryfall error: ${response.status}`);
+      }
+      return data;
+    }
+
+    // Handles single-faced and multi-faced cards
+    function getImageUrl(card) {
+      if (card?.image_uris?.border_crop) return card.image_uris.border_crop;
+
+      const face = card?.card_faces?.find(f => f?.image_uris?.border_crop);
+      if (face) return face.image_uris.border_crop;
+
+      // fallbacks
+      if (card?.image_uris?.normal) return card.image_uris.normal;
+      const face2 = card?.card_faces?.find(f => f?.image_uris?.normal);
+      if (face2) return face2.image_uris.normal;
+
+      return "";
+    }
+
+    function buildCreatureRandomUrl(mv) {
+      const t = Date.now();
+      return scryfallRandomURI + creatureQuery + genericQuery + mv + "&t=" + t;
+    }
+
+    function buildCreatureSearchUrl(mv) {
+      const t = Date.now();
+      return scryfallSearchURI + creatureQuery + genericQuery + mv + "&t=" + t;
+    }
+
+    /* ---------- Auto-style buttons (no results) ---------- */
+
+    function createLimiter(maxConcurrent) {
+      let active = 0;
+      const queue = [];
+      return (fn) => new Promise((resolve, reject) => {
+        const run = async () => {
+          active++;
+          try { resolve(await fn()); }
+          catch (e) { reject(e); }
+          finally {
+            active--;
+            if (queue.length) queue.shift()();
+          }
+        };
+        if (active < maxConcurrent) run();
+        else queue.push(run);
+      });
+    }
+    const limit = createLimiter(4);
+
+    // Returns: true (has results), false (no results), null (unknown/error)
+    async function hasCreatureForMV(mv) {
+      const url = buildCreatureSearchUrl(mv);
+      const res = await fetch(url);
+
+      // /cards/search returns 404 when nothing matches
+      if (res.status === 404) return false;
+      if (!res.ok) return null;
+
+      const data = await res.json().catch(() => null);
+      const total = data?.total_cards;
+      if (typeof total === "number") return total > 0;
+
+      return Array.isArray(data?.data) && data.data.length > 0;
+    }
+
+    function applyNoResultStyles(availabilityMap) {
+      for (const [mvStr, btn] of Object.entries(buttonsByMV)) {
+        const mv = Number(mvStr);
+        const available = availabilityMap[mv];
+        if (available === false) btn.classList.add("noResult");
+        else btn.classList.remove("noResult");
+      }
+    }
+
+    async function refreshNoResultButtons() {
+      const now = Date.now();
+
+      // 1) Try cache
+      try {
+        const cached = JSON.parse(localStorage.getItem(AVAIL_CACHE_KEY) || "null");
+        if (cached?.timestamp && cached?.map && (now - cached.timestamp) < AVAIL_CACHE_TTL_MS) {
+          applyNoResultStyles(cached.map);
+          return;
+        }
+      } catch {}
+
+      // 2) Live check
+      const map = {};
+      const mvs = Object.keys(buttonsByMV).map(Number);
+
+      await Promise.all(
+        mvs.map(mv => limit(async () => {
+          try { map[mv] = await hasCreatureForMV(mv); }
+          catch { map[mv] = null; } // don't tint on network issues
+        }))
+      );
+
+      applyNoResultStyles(map);
+
+      // 3) Store cache
+      try {
+        localStorage.setItem(AVAIL_CACHE_KEY, JSON.stringify({ timestamp: now, map }));
+      } catch {}
+    }
+
+    /* ---------- UI transitions ---------- */
+
+    function showOverlay() {
+      document.getElementById("overlay").classList.remove("hidden");
+      document.getElementById("stage").classList.remove("visible");
+      document.getElementById("statusLine").textContent = "";
+      refreshNoResultButtons(); // uses cache; won’t spam
+    }
+
+    function showStage() {
+      document.getElementById("overlay").classList.add("hidden");
+      document.getElementById("stage").classList.add("visible");
+    }
+
+    /* ---------- Summon flow ---------- */
+
+    async function summonCreature(mv) {
+      if (inFlight) return;
+      inFlight = true;
+
+      const status = document.getElementById("statusLine");
+      const img = document.getElementById("cardImg");
+      const nameEl = document.getElementById("cardName");
+      const mvEl = document.getElementById("cardMV");
+      const linkEl = document.getElementById("scryfallLink");
+      const cmcPill = document.getElementById("cmcPill");
+      const loadingShell = document.getElementById("loadingShell");
+
+      showStage();
+
+      cmcPill.textContent = "CMC: " + mv;
+      nameEl.textContent = "Summoning…";
+      mvEl.textContent = "";
+      linkEl.style.display = "none";
+      status.textContent = "Searching for a creature with MV " + mv + "…";
+
+      img.classList.remove("reveal");
+      img.onload = null;
+      img.removeAttribute("src");
+      img.alt = "";
+
+      loadingShell.style.display = "block";
+
+      try {
+        const card = await fetchNewCard(buildCreatureRandomUrl(mv));
+        const imageUrl = getImageUrl(card);
+        const displayedMV = (card?.mana_value ?? card?.cmc);
+
+        nameEl.textContent = card?.name ?? "Unknown card";
+        mvEl.textContent = (displayedMV != null) ? ("MV " + displayedMV) : "";
+
+        if (card?.scryfall_uri) {
+          linkEl.href = card.scryfall_uri;
+          linkEl.style.display = "inline";
+        }
+
+        if (!imageUrl) {
+          loadingShell.style.display = "none";
+          status.textContent = "Pulled: " + (card?.name ?? "Unknown") + " (no image for this layout)";
+          return;
+        }
+
+        img.onload = () => {
+          loadingShell.style.display = "none";
+          void img.offsetWidth; // retrigger animation
+          img.classList.add("reveal");
+        };
+
+        img.src = imageUrl;
+        img.alt = card?.name ?? "MTG card";
+        status.textContent = "Pulled: " + (card?.name ?? "Unknown");
+      } catch (err) {
+        loadingShell.style.display = "none";
+        nameEl.textContent = "No card found";
+        mvEl.textContent = "";
+        status.textContent = "No result: " + (err?.message ?? String(err)) + " — try another number.";
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    function init() {
+      const grid = document.getElementById("cmcGrid");
+      const backBtn = document.getElementById("backBtn");
+
+      buttonsByMV = {};
+
+      for (let i = 1; i <= 20; i++) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = String(i);
+        btn.addEventListener("click", () => summonCreature(i));
+        grid.appendChild(btn);
+        buttonsByMV[i] = btn;
+      }
+
+      backBtn.addEventListener("click", showOverlay);
+
+      showOverlay();
+      refreshNoResultButtons();
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+  </script>
+</body>
+</html>
