@@ -327,6 +327,192 @@
       .imgFrame{ max-height: 66svh; }
       .title{ font-size: 20px; }
     }
+
+    /* =========================
+       History (minimal style additions)
+       ========================= */
+
+    .historyTab{
+      position: fixed;
+      left: calc(14px + env(safe-area-inset-left));
+      right: calc(14px + env(safe-area-inset-right));
+      bottom: calc(12px + env(safe-area-inset-bottom));
+      z-index: 12; /* above overlay content */
+      width: auto;
+      display:flex;
+      justify-content:center;
+      pointer-events:auto;
+      transition: opacity 220ms ease, transform 220ms ease;
+      will-change: opacity, transform;
+    }
+    .historyTab.hidden{
+      opacity:0;
+      pointer-events:none;
+      transform: translateY(10px);
+    }
+    .historyTab button{
+      width: 100%;
+      max-width: 520px;
+      border: 1px solid var(--stroke);
+      background: var(--glass);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 12px 14px;
+      font-size: 13px;
+      font-weight: 950;
+      letter-spacing: 0.2px;
+      backdrop-filter: blur(8px);
+      -webkit-tap-highlight-color: transparent;
+      box-shadow: 0 12px 22px rgba(0,0,0,0.28);
+      user-select:none;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap: 10px;
+    }
+    .historyTab button:active{
+      transform: scale(0.985);
+      background: var(--glass2);
+      border-color: var(--stroke2);
+    }
+
+    .historyOverlay{
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display:flex;
+      align-items:flex-end;
+      justify-content:center;
+      padding-right: calc(14px + env(safe-area-inset-right));
+      padding-left: calc(14px + env(safe-area-inset-left));
+      padding-bottom: calc(14px + env(safe-area-inset-bottom));
+      padding-top: calc(14px + env(safe-area-inset-top));
+      background: rgba(0,0,0,0.35);
+      backdrop-filter: blur(10px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 220ms ease;
+      will-change: opacity;
+    }
+    .historyOverlay.open{
+      opacity:1;
+      pointer-events:auto;
+    }
+
+    .historySheet{
+      width: 100%;
+      max-width: 520px;
+      max-height: 86svh;
+      border-radius: 22px;
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.06);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      transform: translateY(16px);
+      transition: transform 260ms cubic-bezier(.16,.84,.27,1);
+      will-change: transform;
+    }
+    .historyOverlay.open .historySheet{
+      transform: translateY(0);
+    }
+
+    .historyHeader{
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.04);
+    }
+    .historyHeader .hTitle{
+      font-size: 14px;
+      font-weight: 950;
+      letter-spacing: 0.2px;
+      color: var(--text);
+    }
+    .historyHeader .hSub{
+      font-size: 12px;
+      color: var(--muted2);
+      font-weight: 850;
+      margin-top: 2px;
+    }
+    .historyHeader .hLeft{
+      display:flex;
+      flex-direction:column;
+      gap: 0;
+    }
+    .historyHeader .hClose{
+      padding: 10px 12px;
+      border-radius: 999px;
+    }
+
+    .historyList{
+      padding: 12px;
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+      overflow:auto;
+      -webkit-overflow-scrolling: touch;
+      max-height: calc(86svh - 54px);
+    }
+
+    .historyEmpty{
+      padding: 24px 6px 10px;
+      text-align:center;
+      color: var(--muted2);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .historyItem{
+      border-radius: var(--radius-lg);
+      overflow:hidden;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.04);
+      box-shadow: 0 14px 26px rgba(0,0,0,0.35);
+    }
+    .historyItem .imgFrame{
+      max-height: 56svh; /* slightly smaller than main stage */
+      box-shadow: none;
+      border: none;
+      border-radius: 0;
+      background: rgba(255,255,255,0.03);
+    }
+    .historyMetaRow{
+      display:flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px 12px;
+    }
+    .historyMetaRow .hName{
+      font-size: 13px;
+      font-weight: 950;
+      color: var(--text);
+      line-height: 1.2;
+      flex: 1;
+      min-width: 0;
+    }
+    .historyMetaRow .hRight{
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap: 4px;
+      flex-shrink:0;
+    }
+    .historyMetaRow .hMv{
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .historyMetaRow .hLink{
+      font-size: 12px;
+      color: rgba(140,174,248,0.98);
+      font-weight: 900;
+      white-space: nowrap;
+    }
   </style>
 </head>
 
@@ -341,8 +527,29 @@
 
     <div id="cmcGrid" class="grid" role="group" aria-label="CMC buttons"></div>
 
-    <div class="footerNote">Tip: tap <b>Pick another</b> to return to numbers.</div>
+    <div class="footerNote">Tip: tap anywhere on the card to return to numbers.</div>
   </section>
+
+  <!-- History Tab -->
+  <div id="historyTab" class="historyTab">
+    <button type="button" id="historyBtn" aria-haspopup="dialog" aria-controls="historyOverlay">
+      History
+    </button>
+  </div>
+
+  <!-- History Bottom Sheet -->
+  <div id="historyOverlay" class="historyOverlay" role="dialog" aria-modal="true" aria-label="History">
+    <div class="historySheet" role="document">
+      <div class="historyHeader">
+        <div class="hLeft">
+          <div class="hTitle">History</div>
+          <div class="hSub">Previously summoned creatures</div>
+        </div>
+        <button id="historyClose" class="btn hClose" type="button">Close</button>
+      </div>
+      <div id="historyList" class="historyList"></div>
+    </div>
+  </div>
 
   <!-- Card stage -->
   <main id="stage" class="stage safePad" aria-live="polite">
@@ -374,24 +581,29 @@
   </main>
 
   <script>
-    // Reduced from your original app
+    // Scryfall endpoints
     const scryfallRandomURI = "https://api.scryfall.com/cards/random?format=json&q=";
     const scryfallSearchURI = "https://api.scryfall.com/cards/search?order=released&unique=cards&q=";
 
-    const creatureQuery = "type%3Acreature+";
+    // Front-face creature only:
+    // t:/^[^\/]*Creature/
+    // (encoded) t%3A%2F%5E%5B%5E%5C%2F%5D*Creature%2F+
+    const creatureQuery = "t%3A%2F%5E%5B%5E%5C%2F%5D*Creature%2F+";
+
+    // Keep your original filters + mv=
     const genericQuery  = "(game%3Apaper)+lang%3Aenglish+(-is%3Afunny)+is%3Afirstprinting+F%3AV+-o%3Adraft+mv%3D";
 
     let inFlight = false;
     let buttonsByMV = {};
 
-    // NEW (tiny): token to prevent late/stale requests from overwriting UI after you return to menu
-    let summonToken = 0;
-
     // Cache availability checks to avoid 20 API hits on every load (24h TTL)
     const AVAIL_CACHE_KEY = "mvCreatureAvailability_v1";
     const AVAIL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-    // ✅ Shows useful "no results" messages by reading Scryfall's error JSON
+    // History
+    const HISTORY_KEY = "mvCreatureHistory_v1";
+    const HISTORY_MAX = 60;
+
     async function fetchNewCard(url) {
       const response = await fetch(url);
 
@@ -405,14 +617,12 @@
       return data;
     }
 
-    // Handles single-faced and multi-faced cards
     function getImageUrl(card) {
       if (card?.image_uris?.border_crop) return card.image_uris.border_crop;
 
       const face = card?.card_faces?.find(f => f?.image_uris?.border_crop);
       if (face) return face.image_uris.border_crop;
 
-      // fallbacks
       if (card?.image_uris?.normal) return card.image_uris.normal;
       const face2 = card?.card_faces?.find(f => f?.image_uris?.normal);
       if (face2) return face2.image_uris.normal;
@@ -507,22 +717,148 @@
       } catch {}
     }
 
+    /* ---------- History ---------- */
+
+    function loadHistory() {
+      try {
+        const raw = localStorage.getItem(HISTORY_KEY);
+        const arr = JSON.parse(raw || "[]");
+        return Array.isArray(arr) ? arr : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveHistory(arr) {
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr)); } catch {}
+    }
+
+    function addToHistory(card, chosenMV) {
+      const img = getImageUrl(card);
+      const entry = {
+        t: Date.now(),
+        chosenMV: chosenMV,
+        name: card?.name ?? "Unknown card",
+        uri: card?.scryfall_uri ?? "",
+        img: img ?? "",
+        id: card?.id ?? ""
+      };
+
+      const hist = loadHistory();
+      hist.unshift(entry);
+      if (hist.length > HISTORY_MAX) hist.length = HISTORY_MAX;
+
+      saveHistory(hist);
+      renderHistory();
+    }
+
+    function formatTime(ts) {
+      try {
+        const d = new Date(ts);
+        return d.toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+      } catch {
+        return "";
+      }
+    }
+
+    function renderHistory() {
+      const list = document.getElementById("historyList");
+      const hist = loadHistory();
+      list.innerHTML = "";
+
+      if (!hist.length) {
+        const empty = document.createElement("div");
+        empty.className = "historyEmpty";
+        empty.textContent = "No creatures yet. Summon a card, then come back here to see it.";
+        list.appendChild(empty);
+        return;
+      }
+
+      for (const item of hist) {
+        const wrap = document.createElement("div");
+        wrap.className = "historyItem";
+
+        const frame = document.createElement("div");
+        frame.className = "imgFrame";
+
+        const link = document.createElement("a");
+        link.href = item.uri || "#";
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.style.display = "block";
+
+        const img = document.createElement("img");
+        img.alt = item.name || "MTG card";
+        img.loading = "lazy";
+        img.decoding = "async";
+        if (item.img) img.src = item.img;
+
+        link.appendChild(img);
+        frame.appendChild(link);
+
+        const meta = document.createElement("div");
+        meta.className = "historyMetaRow";
+
+        const name = document.createElement("div");
+        name.className = "hName";
+        name.textContent = item.name || "Unknown card";
+
+        const right = document.createElement("div");
+        right.className = "hRight";
+
+        const mv = document.createElement("div");
+        mv.className = "hMv";
+        mv.textContent = `CMC ${item.chosenMV}`;
+
+        const a = document.createElement("a");
+        a.className = "hLink";
+        a.href = item.uri || "#";
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.textContent = formatTime(item.t);
+
+        right.appendChild(mv);
+        right.appendChild(a);
+
+        meta.appendChild(name);
+        meta.appendChild(right);
+
+        wrap.appendChild(frame);
+        wrap.appendChild(meta);
+
+        list.appendChild(wrap);
+      }
+    }
+
+    function openHistory() {
+      renderHistory();
+      document.getElementById("historyOverlay").classList.add("open");
+    }
+
+    function closeHistory() {
+      document.getElementById("historyOverlay").classList.remove("open");
+    }
+
+    function setHistoryTabVisible(visible) {
+      document.getElementById("historyTab").classList.toggle("hidden", !visible);
+    }
+
     /* ---------- UI transitions ---------- */
 
     function showOverlay() {
-      // NEW (tiny): invalidate any in-flight summon so late responses don't overwrite UI
-      summonToken++;
-      inFlight = false;
-
       document.getElementById("overlay").classList.remove("hidden");
       document.getElementById("stage").classList.remove("visible");
       document.getElementById("statusLine").textContent = "";
-      refreshNoResultButtons(); // uses cache; won’t spam
+      setHistoryTabVisible(true);
+      closeHistory();
+      refreshNoResultButtons();
     }
 
     function showStage() {
       document.getElementById("overlay").classList.add("hidden");
       document.getElementById("stage").classList.add("visible");
+      setHistoryTabVisible(false);
+      closeHistory();
     }
 
     /* ---------- Summon flow ---------- */
@@ -530,9 +866,6 @@
     async function summonCreature(mv) {
       if (inFlight) return;
       inFlight = true;
-
-      // NEW (tiny): capture token for this summon
-      const myToken = ++summonToken;
 
       const status = document.getElementById("statusLine");
       const img = document.getElementById("cardImg");
@@ -559,10 +892,6 @@
 
       try {
         const card = await fetchNewCard(buildCreatureRandomUrl(mv));
-
-        // NEW (tiny): if user returned to menu / started another summon, ignore this result
-        if (myToken !== summonToken) return;
-
         const imageUrl = getImageUrl(card);
         const displayedMV = (card?.mana_value ?? card?.cmc);
 
@@ -577,27 +906,29 @@
         if (!imageUrl) {
           loadingShell.style.display = "none";
           status.textContent = "Pulled: " + (card?.name ?? "Unknown") + " (no image for this layout)";
+          addToHistory(card, mv);
           return;
         }
 
         img.onload = () => {
           loadingShell.style.display = "none";
-          void img.offsetWidth; // retrigger animation
+          void img.offsetWidth;
           img.classList.add("reveal");
         };
 
         img.src = imageUrl;
         img.alt = card?.name ?? "MTG card";
         status.textContent = "Pulled: " + (card?.name ?? "Unknown");
-      } catch (err) {
-        if (myToken !== summonToken) return;
 
+        addToHistory(card, mv);
+
+      } catch (err) {
         loadingShell.style.display = "none";
         nameEl.textContent = "No card found";
         mvEl.textContent = "";
         status.textContent = "No result: " + (err?.message ?? String(err)) + " — try another number.";
       } finally {
-        if (myToken === summonToken) inFlight = false;
+        inFlight = false;
       }
     }
 
@@ -605,6 +936,10 @@
       const grid = document.getElementById("cmcGrid");
       const backBtn = document.getElementById("backBtn");
       const stage = document.getElementById("stage");
+
+      const historyBtn = document.getElementById("historyBtn");
+      const historyClose = document.getElementById("historyClose");
+      const historyOverlay = document.getElementById("historyOverlay");
 
       buttonsByMV = {};
 
@@ -617,18 +952,28 @@
         buttonsByMV[i] = btn;
       }
 
+      // Back button still works
       backBtn.addEventListener("click", showOverlay);
 
-      // ✅ ONLY REQUESTED CHANGE:
-      // Tap anywhere on the creature screen to return, except on buttons/links.
-      stage.addEventListener("click", (e) => {
+      // ✅ Tap anywhere on the card screen to return (but don't steal taps on buttons/links)
+      stage.addEventListener("pointerup", (e) => {
         if (!stage.classList.contains("visible")) return;
-        if (e.target.closest("button, a")) return; // don't hijack real controls
+        if (e.target.closest("a, button")) return;
         showOverlay();
+      });
+
+      // History wiring
+      historyBtn.addEventListener("click", openHistory);
+      historyClose.addEventListener("click", closeHistory);
+
+      // Tap outside the sheet to close
+      historyOverlay.addEventListener("click", (e) => {
+        if (e.target === historyOverlay) closeHistory();
       });
 
       showOverlay();
       refreshNoResultButtons();
+      renderHistory();
     }
 
     document.addEventListener("DOMContentLoaded", init);
