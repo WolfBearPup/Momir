@@ -643,14 +643,6 @@
     }
 
     function wireButtons() {
-      // NEW: tap anywhere (except interactive controls) to return to MV overlay
-      const cardView = document.querySelector(".cardView");
-      cardView.addEventListener("pointerup", (e) => {
-        if (e.target.closest("#refreshBtn, #copyBtn, #scryfallLink, #backBtn")) return;
-        setOverlayVisible(true);
-      });
-
-      // existing back button behavior stays the same
       el("backBtn").addEventListener("click", () => {
         setOverlayVisible(true);
       });
