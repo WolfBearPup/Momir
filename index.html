@@ -175,18 +175,18 @@
       -webkit-tap-highlight-color: transparent;
       user-select: none;
     }
+    .pill:active { transform: scale(0.99); }
 
-    /* Hint pill (where "Pick another" used to be) */
-    .hintPill{
+    /* NEW: reminder styling + fade */
+    .pill.hintPill {
       opacity: 0.78;
       cursor: default;
     }
-    .hintPill.fadeOut{
+    .pill.hintPill:active { transform: none; }
+    .pill.hintPill.fadeOut{
       opacity: 0;
       transition: opacity 800ms ease;
     }
-
-    .pill:active { transform: scale(0.99); }
 
     .stage {
       flex: 1;
@@ -340,7 +340,7 @@
       vertical-align: middle;
     }
 
-    /* Small phones */
+    /* Small phones: slightly bigger buttons */
     @media (max-width: 380px) {
       .mvBtn { height: 60px; font-size: 19px; }
       .grid { gap: 9px; }
@@ -353,6 +353,7 @@
     <!-- Card View -->
     <div class="cardView" aria-live="polite">
       <div class="topBar">
+        <!-- CHANGED: back button -> reminder pill -->
         <div class="pill hintPill" id="backHint">Tap anywhere to return</div>
         <div class="pill" id="refreshBtn">↻ Re-roll</div>
       </div>
@@ -398,22 +399,29 @@
 
   <script>
     // ---------------------------
-    // Scryfall query
-    // IMPORTANT: Front-face creature only to prevent:
+    // Scryfall query (IMPORTANT CHANGE)
+    //
+    // We require "Creature" on the FRONT face only, so we don't pull:
     // - Battles that transform into creatures
     // - Enchantments (e.g., Fable of the Mirror-Breaker) that transform into creatures
     //
-    // Achieved by matching "Creature" only before the face separator:
+    // This is done via regex matching on the combined type line:
     //   t:/^[^\/]*Creature/
+    //
+    // (Before the // separator.)
     // ---------------------------
 
     const MAX_MV = 20;
 
+    // Base endpoint
     const SCRYFALL_RANDOM = "https://api.scryfall.com/cards/random";
     const SCRYFALL_SEARCH = "https://api.scryfall.com/cards/search";
 
+    // Front-face creature only
+    // (We also keep game/lang filters.)
     const BASE_QUERY = 't:/^[^\\/]*Creature/ game:paper lang:en';
 
+    // Cache for "no matching creatures" tinting (auto-updates)
     const AVAIL_CACHE_KEY = "mvAvailabilityCache_v1";
     const AVAIL_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
@@ -445,6 +453,7 @@
     }
 
     function pickImageUrl(card) {
+      // Prefer single-faced image_uris, else card_faces[0]
       if (card && card.image_uris && card.image_uris.border_crop) return card.image_uris.border_crop;
       if (card && Array.isArray(card.card_faces) && card.card_faces[0]?.image_uris?.border_crop) {
         return card.card_faces[0].image_uris.border_crop;
@@ -476,17 +485,20 @@
       const u = new URL(SCRYFALL_RANDOM);
       u.searchParams.set("format", "json");
       u.searchParams.set("q", q);
-      u.searchParams.set("t", String(Date.now())); // cache-bust
+      // cache-bust
+      u.searchParams.set("t", String(Date.now()));
       return u.toString();
     }
 
     function buildSearchUrl(mv) {
+      // Cheap existence check: first page, just need total_cards
       const q = `${BASE_QUERY} mv=${mv}`;
       const u = new URL(SCRYFALL_SEARCH);
       u.searchParams.set("q", q);
       u.searchParams.set("unique", "cards");
       u.searchParams.set("order", "name");
       u.searchParams.set("page", "1");
+      // cache-bust (light)
       u.searchParams.set("t", String(Date.now()));
       return u.toString();
     }
@@ -499,6 +511,7 @@
         const card = await fetchJson(buildRandomUrl(mv));
         lastCard = card;
 
+        // Reveal
         const name = safeText(card.name) || "Unknown";
         const typeLine = safeText(card.type_line);
         const oracle = safeText(card.oracle_text);
@@ -513,6 +526,7 @@
         const imgUrl = pickImageUrl(card);
         if (imgUrl) {
           el("cardImg").src = imgUrl;
+          // let the image load before fading in for drama
           el("cardImg").onload = () => el("cardImg").classList.add("show");
           el("cardImg").onerror = () => { /* ignore */ };
         } else {
@@ -520,13 +534,13 @@
           el("cardImg").removeAttribute("src");
         }
 
-        // Hide overlay + reveal card
+        // hide overlay and animate card panel
         setOverlayVisible(false);
         requestAnimationFrame(() => {
           el("cardPanel").classList.add("show");
         });
 
-        // Fade the hint pill after a moment (still visible long enough to teach)
+        // NEW: fade the reminder after a moment (still teaches the gesture)
         const hint = el("backHint");
         if (hint) {
           hint.classList.remove("fadeOut");
@@ -537,6 +551,7 @@
         el("statusBadge").textContent = `Ready`;
 
       } catch (err) {
+        // Most likely: no matching creatures for that MV
         if (err?.status === 404) {
           showToast(`No matching creatures for MV ${mv}.`);
         } else {
@@ -556,6 +571,7 @@
         b.type = "button";
         b.textContent = String(mv);
         b.dataset.mv = String(mv);
+
         b.addEventListener("click", () => summon(mv));
         grid.appendChild(b);
       }
@@ -590,16 +606,30 @@
       } catch { /* ignore */ }
     }
 
+    async function checkAvailability() {
+      // Use cache first
+      const cached = readAvailabilityCache();
+      if (cached) {
+        applyAvailabilityTint(cached);
+        el("statusBadge").textContent = "Ready";
+        // Still refresh in background (auto-updates)
+        refreshAvailabilityInBackground();
+        return;
+      }
+      await refreshAvailabilityInForeground();
+    }
+
     async function refreshAvailabilityInForeground() {
       el("statusBadge").textContent = "Checking available MVs…";
+
       const map = {};
       const tasks = [];
-
       for (let mv = 1; mv <= MAX_MV; mv++) {
         tasks.push(
           fetch(buildSearchUrl(mv))
             .then(r => r.json().catch(() => null).then(j => ({ ok: r.ok, j })))
             .then(({ ok, j }) => {
+              // If search is OK and total_cards > 0, it exists
               map[mv] = !!(ok && j && typeof j.total_cards === "number" && j.total_cards > 0);
             })
             .catch(() => { map[mv] = false; })
@@ -613,9 +643,9 @@
     }
 
     async function refreshAvailabilityInBackground() {
+      // Silent background refresh (no status spam)
       const map = {};
       const tasks = [];
-
       for (let mv = 1; mv <= MAX_MV; mv++) {
         tasks.push(
           fetch(buildSearchUrl(mv))
@@ -632,27 +662,14 @@
       applyAvailabilityTint(map);
     }
 
-    async function checkAvailability() {
-      const cached = readAvailabilityCache();
-      if (cached) {
-        applyAvailabilityTint(cached);
-        el("statusBadge").textContent = "Ready";
-        refreshAvailabilityInBackground();
-        return;
-      }
-      await refreshAvailabilityInForeground();
-    }
-
     function wireButtons() {
-      // Tap anywhere (except interactive controls) to return to the MV overlay
+      // NEW: tap anywhere (except interactive controls) to return to the MV overlay
       const cardView = document.querySelector(".cardView");
       cardView.addEventListener("pointerup", (e) => {
-        // Do not hijack taps on controls
         if (e.target.closest("#refreshBtn, #copyBtn, #scryfallLink")) return;
         setOverlayVisible(true);
       });
 
-      // Re-roll keeps working
       el("refreshBtn").addEventListener("click", () => {
         if (lastMv == null) {
           showToast("Pick a mana value first.");
@@ -662,7 +679,6 @@
         summon(lastMv);
       });
 
-      // Copy keeps working
       el("copyBtn").addEventListener("click", async () => {
         const name = el("cardName").textContent || "";
         if (!name || name === "Summon a creature") {
@@ -683,7 +699,9 @@
       resetCardUI();
       wireButtons();
       checkAvailability();
+      // Start with overlay visible
       setOverlayVisible(true);
+      // Slight entrance animation
       requestAnimationFrame(() => el("cardPanel").classList.add("show"));
     }
 
