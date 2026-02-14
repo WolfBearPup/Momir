@@ -384,6 +384,9 @@
     let inFlight = false;
     let buttonsByMV = {};
 
+    // NEW (tiny): token to prevent late/stale requests from overwriting UI after you return to menu
+    let summonToken = 0;
+
     // Cache availability checks to avoid 20 API hits on every load (24h TTL)
     const AVAIL_CACHE_KEY = "mvCreatureAvailability_v1";
     const AVAIL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -507,6 +510,10 @@
     /* ---------- UI transitions ---------- */
 
     function showOverlay() {
+      // NEW (tiny): invalidate any in-flight summon so late responses don't overwrite UI
+      summonToken++;
+      inFlight = false;
+
       document.getElementById("overlay").classList.remove("hidden");
       document.getElementById("stage").classList.remove("visible");
       document.getElementById("statusLine").textContent = "";
@@ -523,6 +530,9 @@
     async function summonCreature(mv) {
       if (inFlight) return;
       inFlight = true;
+
+      // NEW (tiny): capture token for this summon
+      const myToken = ++summonToken;
 
       const status = document.getElementById("statusLine");
       const img = document.getElementById("cardImg");
@@ -549,6 +559,10 @@
 
       try {
         const card = await fetchNewCard(buildCreatureRandomUrl(mv));
+
+        // NEW (tiny): if user returned to menu / started another summon, ignore this result
+        if (myToken !== summonToken) return;
+
         const imageUrl = getImageUrl(card);
         const displayedMV = (card?.mana_value ?? card?.cmc);
 
@@ -576,18 +590,21 @@
         img.alt = card?.name ?? "MTG card";
         status.textContent = "Pulled: " + (card?.name ?? "Unknown");
       } catch (err) {
+        if (myToken !== summonToken) return;
+
         loadingShell.style.display = "none";
         nameEl.textContent = "No card found";
         mvEl.textContent = "";
         status.textContent = "No result: " + (err?.message ?? String(err)) + " — try another number.";
       } finally {
-        inFlight = false;
+        if (myToken === summonToken) inFlight = false;
       }
     }
 
     function init() {
       const grid = document.getElementById("cmcGrid");
       const backBtn = document.getElementById("backBtn");
+      const stage = document.getElementById("stage");
 
       buttonsByMV = {};
 
@@ -601,6 +618,14 @@
       }
 
       backBtn.addEventListener("click", showOverlay);
+
+      // ✅ ONLY REQUESTED CHANGE:
+      // Tap anywhere on the creature screen to return, except on buttons/links.
+      stage.addEventListener("click", (e) => {
+        if (!stage.classList.contains("visible")) return;
+        if (e.target.closest("button, a")) return; // don't hijack real controls
+        showOverlay();
+      });
 
       showOverlay();
       refreshNoResultButtons();
