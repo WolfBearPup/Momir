@@ -177,17 +177,6 @@
     }
     .pill:active { transform: scale(0.99); }
 
-    /* NEW: reminder styling + fade */
-    .pill.hintPill {
-      opacity: 0.78;
-      cursor: default;
-    }
-    .pill.hintPill:active { transform: none; }
-    .pill.hintPill.fadeOut{
-      opacity: 0;
-      transition: opacity 800ms ease;
-    }
-
     .stage {
       flex: 1;
       display: flex;
@@ -353,8 +342,7 @@
     <!-- Card View -->
     <div class="cardView" aria-live="polite">
       <div class="topBar">
-        <!-- CHANGED: back button -> reminder pill -->
-        <div class="pill hintPill" id="backHint">Tap anywhere to return</div>
+        <div class="pill" id="backBtn">← Choose MV</div>
         <div class="pill" id="refreshBtn">↻ Re-roll</div>
       </div>
 
@@ -540,14 +528,6 @@
           el("cardPanel").classList.add("show");
         });
 
-        // NEW: fade the reminder after a moment (still teaches the gesture)
-        const hint = el("backHint");
-        if (hint) {
-          hint.classList.remove("fadeOut");
-          clearTimeout(window._hintT);
-          window._hintT = setTimeout(() => hint.classList.add("fadeOut"), 1400);
-        }
-
         el("statusBadge").textContent = `Ready`;
 
       } catch (err) {
@@ -663,10 +643,15 @@
     }
 
     function wireButtons() {
-      // NEW: tap anywhere (except interactive controls) to return to the MV overlay
+      // NEW: tap anywhere (except interactive controls) to return to MV overlay
       const cardView = document.querySelector(".cardView");
       cardView.addEventListener("pointerup", (e) => {
-        if (e.target.closest("#refreshBtn, #copyBtn, #scryfallLink")) return;
+        if (e.target.closest("#refreshBtn, #copyBtn, #scryfallLink, #backBtn")) return;
+        setOverlayVisible(true);
+      });
+
+      // existing back button behavior stays the same
+      el("backBtn").addEventListener("click", () => {
         setOverlayVisible(true);
       });
 
