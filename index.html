@@ -1,136 +1,688 @@
-from flask import Flask, request, jsonify
-from escpos.printer import Usb
-from PIL import Image, ImageOps
-import requests, io, time
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Summon a Creature</title>
 
-# ---- EDIT THESE ----
-VENDOR_ID  = 0x0000  # e.g. 0x04b8
-PRODUCT_ID = 0x0000  # e.g. 0x0202
+  <style>
+    :root{
+      --bg: #0b0b0e;
+      --panel: rgba(255,255,255,0.06);
+      --panel2: rgba(255,255,255,0.10);
+      --text: rgba(255,255,255,0.92);
+      --muted: rgba(255,255,255,0.65);
+      --accent: #6b90fa;
+      --danger: #ff6b6b;
+      --danger-soft: rgba(255,107,107,0.22);
+      --shadow: 0 18px 60px rgba(0,0,0,0.55);
+      --radius: 18px;
+    }
 
-# 58mm printers are commonly 384 dots wide at 203dpi
-TARGET_WIDTH = 384
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+      background:
+        radial-gradient(1200px 700px at 50% -10%, rgba(107,144,250,0.25), transparent 60%),
+        radial-gradient(800px 500px at 10% 20%, rgba(255,107,107,0.16), transparent 55%),
+        radial-gradient(900px 600px at 90% 30%, rgba(107,250,184,0.10), transparent 55%),
+        var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
 
-app = Flask(__name__)
+    .app {
+      position: relative;
+      height: 100%;
+      width: 100%;
+      padding:
+        calc(14px + env(safe-area-inset-top))
+        calc(14px + env(safe-area-inset-right))
+        calc(14px + env(safe-area-inset-bottom))
+        calc(14px + env(safe-area-inset-left));
+    }
 
-def get_printer():
-    # Most USB ESC/POS printers work with just vendor/product.
-    # python-escpos docs show this pattern. :contentReference[oaicite:2]{index=2}
-    return Usb(VENDOR_ID, PRODUCT_ID, timeout=0)
+    /* ---- Overlay (1..20) ---- */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      padding:
+        calc(18px + env(safe-area-inset-top))
+        calc(18px + env(safe-area-inset-right))
+        calc(18px + env(safe-area-inset-bottom))
+        calc(18px + env(safe-area-inset-left));
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      z-index: 20;
+      background: rgba(0,0,0,0.2);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      transition: opacity 260ms ease, transform 420ms cubic-bezier(.2,.9,.2,1);
+    }
+    .overlay.hidden {
+      opacity: 0;
+      transform: translateY(14px) scale(0.99);
+      pointer-events: none;
+    }
 
-def scryfall_random_creature(cmc: int):
-    # Simple, stable query. (You can add more filters later.)
-    q = f"type:creature game:paper lang:en mv={cmc}"
-    url = "https://api.scryfall.com/cards/random"
-    r = requests.get(url, params={"format": "json", "q": q}, timeout=20)
+    .titleRow {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .titleRow h1{
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: -0.02em;
+      font-weight: 700;
+    }
+    .titleRow .hint{
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      text-align: right;
+      line-height: 1.25;
+    }
 
-    if r.status_code != 200:
-        # Scryfall returns an error object when no match exists.
-        try:
-            return None, r.json().get("details", "No matching creatures.")
-        except Exception:
-            return None, "No matching creatures."
-    return r.json(), None
+    .grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
 
-def pick_image_url(card: dict):
-    # Handle double-faced cards too
-    if "image_uris" in card and card["image_uris"].get("border_crop"):
-        return card["image_uris"]["border_crop"]
-    if "card_faces" in card:
-        for face in card["card_faces"]:
-            if face.get("image_uris", {}).get("border_crop"):
-                return face["image_uris"]["border_crop"]
-    return None
+    .mvBtn {
+      height: 64px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.05));
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      color: var(--text);
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 120ms ease, background 180ms ease, border-color 180ms ease;
+    }
+    .mvBtn:active { transform: scale(0.98); }
+    .mvBtn.noMatch {
+      border-color: rgba(255,107,107,0.30);
+      background: linear-gradient(180deg, rgba(255,107,107,0.18), rgba(255,255,255,0.04));
+    }
 
-def prepare_image_for_58mm(img: Image.Image) -> Image.Image:
-    img = img.convert("RGB")
-    # resize to TARGET_WIDTH maintaining aspect
-    w, h = img.size
-    new_h = max(1, int(h * (TARGET_WIDTH / float(w))))
-    img = img.resize((TARGET_WIDTH, new_h))
+    .overlayFooter {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .badge {
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.10);
+      white-space: nowrap;
+    }
 
-    # grayscale + autocontrast + convert to 1-bit (dither)
-    img = ImageOps.grayscale(img)
-    img = ImageOps.autocontrast(img)
-    img = img.convert("1")
-    return img
+    /* ---- Card View ---- */
+    .cardView {
+      position: absolute;
+      inset: 0;
+      padding:
+        calc(18px + env(safe-area-inset-top))
+        calc(18px + env(safe-area-inset-right))
+        calc(18px + env(safe-area-inset-bottom))
+        calc(18px + env(safe-area-inset-left));
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 10;
+    }
 
-def print_card(card: dict):
-    p = get_printer()
+    .topBar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .pill:active { transform: scale(0.99); }
 
-    name = card.get("name", "Unknown")
-    mv = card.get("mana_value", card.get("cmc", "?"))
-    type_line = card.get("type_line", "")
-    oracle = card.get("oracle_text", "")
-    scry = card.get("scryfall_uri", "")
+    .stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+    }
 
-    # Print a header
-    p.set(align="center", bold=True, width=2, height=2)
-    p.text(f"{name}\n")
-    p.set(align="left", bold=False, width=1, height=1)
-    p.text(f"MV: {mv}\n{type_line}\n\n")
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.05));
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
 
-    if oracle:
-        p.text(oracle + "\n\n")
+    .imageWrap {
+      position: relative;
+      overflow: hidden;
+      aspect-ratio: 5 / 7;
+      background: rgba(0,0,0,0.25);
+    }
+    .imageWrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scale(1.03);
+      opacity: 0;
+      transition: opacity 300ms ease, transform 700ms cubic-bezier(.2,.9,.2,1);
+    }
+    .imageWrap img.show {
+      opacity: 1;
+      transform: scale(1.0);
+    }
 
-    # Try printing the image (optional)
-    img_url = pick_image_url(card)
-    if img_url:
-        r = requests.get(img_url, timeout=30)
-        r.raise_for_status()
-        img = Image.open(io.BytesIO(r.content))
-        img = prepare_image_for_58mm(img)
-        p.image(img)
-        p.text("\n")
+    .meta {
+      padding: 14px 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .nameRow {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .cardName {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+    .mvTag {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(107,144,250,0.35);
+      background: rgba(107,144,250,0.12);
+      color: rgba(255,255,255,0.92);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
 
-    # Optional QR to full card online (fast + useful)
-    if scry:
-        p.qr(scry, size=4)
-        p.text("\n")
+    .typeLine {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.25;
+    }
+    .oracle {
+      color: rgba(255,255,255,0.86);
+      font-size: 14px;
+      line-height: 1.35;
+      white-space: pre-line;
+    }
 
-    p.text("\n\n")
-    try:
-        p.close()
-    except Exception:
-        pass
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      flex: 1;
+      min-width: 140px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      font-weight: 700;
+      font-size: 14px;
+      text-align: center;
+      text-decoration: none;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      transition: transform 120ms ease, background 180ms ease;
+    }
+    .btn:active { transform: scale(0.99); }
+    .btn.primary {
+      background: rgba(107,144,250,0.18);
+      border-color: rgba(107,144,250,0.32);
+    }
 
-@app.get("/health")
-def health():
-    return jsonify({"ok": True, "ts": int(time.time())})
+    /* Reveal animation */
+    .panel.reveal {
+      transform: translateY(10px) scale(0.985);
+      opacity: 0;
+      transition: transform 520ms cubic-bezier(.2,.9,.2,1), opacity 420ms ease;
+    }
+    .panel.reveal.show {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
 
-@app.post("/summon")
-def summon():
-    payload = request.get_json(force=True) or {}
-    cmc = int(payload.get("cmc", -1))
-    do_print = bool(payload.get("print", True))
+    /* Toast */
+    .toast {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(0,0,0,0.65);
+      border: 1px solid rgba(255,255,255,0.12);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      color: var(--text);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 220ms ease, transform 220ms ease;
+      pointer-events: none;
+      z-index: 40;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .toast .dangerDot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 99px;
+      background: var(--danger);
+      margin-right: 8px;
+      vertical-align: middle;
+    }
 
-    if cmc < 0:
-        return jsonify({"ok": False, "error": "Missing cmc"}), 400
+    /* Small phones: slightly bigger buttons */
+    @media (max-width: 380px) {
+      .mvBtn { height: 60px; font-size: 19px; }
+      .grid { gap: 9px; }
+    }
+  </style>
+</head>
 
-    card, err = scryfall_random_creature(cmc)
-    if not card:
-        return jsonify({"ok": False, "error": err or "No matching creatures", "cmc": cmc}), 404
+<body>
+  <div class="app">
+    <!-- Card View -->
+    <div class="cardView" aria-live="polite">
+      <div class="topBar">
+        <div class="pill" id="backBtn">← Choose MV</div>
+        <div class="pill" id="refreshBtn">↻ Re-roll</div>
+      </div>
 
-    if do_print:
-        try:
-            print_card(card)
-        except Exception as e:
-            return jsonify({"ok": False, "error": f"Print failed: {e}", "card": card}), 500
+      <div class="stage">
+        <div class="panel reveal" id="cardPanel">
+          <div class="imageWrap">
+            <img id="cardImg" alt="Card art" />
+          </div>
+          <div class="meta">
+            <div class="nameRow">
+              <h2 class="cardName" id="cardName">Summon a creature</h2>
+              <div class="mvTag" id="mvTag">MV —</div>
+            </div>
+            <div class="typeLine" id="typeLine">Tap a number to begin.</div>
+            <div class="oracle" id="oracleText"></div>
+            <div class="actions">
+              <a class="btn primary" id="scryfallLink" href="#" target="_blank" rel="noreferrer">Open on Scryfall</a>
+              <div class="btn" id="copyBtn">Copy name</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-    return jsonify({"ok": True, "card": card})
+    <!-- Overlay -->
+    <div class="overlay" id="overlay">
+      <div class="titleRow">
+        <h1>Choose a mana value</h1>
+        <p class="hint">Buttons with a faint red tint have<br/>no matching creatures (auto-updates).</p>
+      </div>
 
-# If you want the phone to pick the card, POST the full card JSON here:
-@app.post("/printCard")
-def printcard():
-    payload = request.get_json(force=True) or {}
-    card = payload.get("card")
-    if not isinstance(card, dict):
-        return jsonify({"ok": False, "error": "Missing card object"}), 400
-    try:
-        print_card(card)
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"Print failed: {e}"}), 500
-    return jsonify({"ok": True})
+      <div class="grid" id="grid"></div>
 
-if __name__ == "__main__":
-    # Listen on local network
-    app.run(host="0.0.0.0", port=8080)
+      <div class="overlayFooter">
+        <div class="badge" id="statusBadge">Checking available MVs…</div>
+        <div class="badge">Creatures only</div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"><span class="dangerDot"></span><span id="toastText"></span></div>
+  </div>
+
+  <script>
+    // ---------------------------
+    // Scryfall query (IMPORTANT CHANGE)
+    //
+    // We require "Creature" on the FRONT face only, so we don't pull:
+    // - Battles that transform into creatures
+    // - Enchantments (e.g., Fable of the Mirror-Breaker) that transform into creatures
+    //
+    // This is done via regex matching on the combined type line:
+    //   t:/^[^\/]*Creature/
+    //
+    // (Before the // separator.)
+    // ---------------------------
+
+    const MAX_MV = 20;
+
+    // Base endpoint
+    const SCRYFALL_RANDOM = "https://api.scryfall.com/cards/random";
+    const SCRYFALL_SEARCH = "https://api.scryfall.com/cards/search";
+
+    // Front-face creature only
+    // (We also keep game/lang filters.)
+    const BASE_QUERY = 't:/^[^\\/]*Creature/ game:paper lang:en';
+
+    // Cache for "no matching creatures" tinting (auto-updates)
+    const AVAIL_CACHE_KEY = "mvAvailabilityCache_v1";
+    const AVAIL_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+    let lastMv = null;
+    let lastCard = null;
+
+    const el = (id) => document.getElementById(id);
+
+    function showToast(msg) {
+      el("toastText").textContent = msg;
+      el("toast").classList.add("show");
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => el("toast").classList.remove("show"), 2300);
+    }
+
+    function setOverlayVisible(visible) {
+      el("overlay").classList.toggle("hidden", !visible);
+    }
+
+    function resetCardUI() {
+      el("cardName").textContent = "Summon a creature";
+      el("mvTag").textContent = "MV —";
+      el("typeLine").textContent = "Tap a number to begin.";
+      el("oracleText").textContent = "";
+      el("scryfallLink").href = "#";
+      el("cardImg").classList.remove("show");
+      el("cardImg").removeAttribute("src");
+      el("cardPanel").classList.remove("show");
+    }
+
+    function pickImageUrl(card) {
+      // Prefer single-faced image_uris, else card_faces[0]
+      if (card && card.image_uris && card.image_uris.border_crop) return card.image_uris.border_crop;
+      if (card && Array.isArray(card.card_faces) && card.card_faces[0]?.image_uris?.border_crop) {
+        return card.card_faces[0].image_uris.border_crop;
+      }
+      return null;
+    }
+
+    function safeText(v) {
+      return (typeof v === "string") ? v : "";
+    }
+
+    async function fetchJson(url, options) {
+      const res = await fetch(url, options);
+      const isJson = res.headers.get("content-type")?.includes("application/json");
+      const data = isJson ? await res.json().catch(() => null) : null;
+
+      if (!res.ok) {
+        const details = data?.details || data?.error || `Request failed (${res.status})`;
+        const err = new Error(details);
+        err.status = res.status;
+        err.data = data;
+        throw err;
+      }
+      return data;
+    }
+
+    function buildRandomUrl(mv) {
+      const q = `${BASE_QUERY} mv=${mv}`;
+      const u = new URL(SCRYFALL_RANDOM);
+      u.searchParams.set("format", "json");
+      u.searchParams.set("q", q);
+      // cache-bust
+      u.searchParams.set("t", String(Date.now()));
+      return u.toString();
+    }
+
+    function buildSearchUrl(mv) {
+      // Cheap existence check: first page, just need total_cards
+      const q = `${BASE_QUERY} mv=${mv}`;
+      const u = new URL(SCRYFALL_SEARCH);
+      u.searchParams.set("q", q);
+      u.searchParams.set("unique", "cards");
+      u.searchParams.set("order", "name");
+      u.searchParams.set("page", "1");
+      // cache-bust (light)
+      u.searchParams.set("t", String(Date.now()));
+      return u.toString();
+    }
+
+    async function summon(mv) {
+      lastMv = mv;
+      el("statusBadge").textContent = `Summoning MV ${mv}…`;
+
+      try {
+        const card = await fetchJson(buildRandomUrl(mv));
+        lastCard = card;
+
+        // Reveal
+        const name = safeText(card.name) || "Unknown";
+        const typeLine = safeText(card.type_line);
+        const oracle = safeText(card.oracle_text);
+        const mvVal = (card.mana_value ?? card.cmc ?? mv);
+
+        el("cardName").textContent = name;
+        el("mvTag").textContent = `MV ${mvVal}`;
+        el("typeLine").textContent = typeLine || "Creature";
+        el("oracleText").textContent = oracle || "";
+        el("scryfallLink").href = safeText(card.scryfall_uri) || "#";
+
+        const imgUrl = pickImageUrl(card);
+        if (imgUrl) {
+          el("cardImg").src = imgUrl;
+          // let the image load before fading in for drama
+          el("cardImg").onload = () => el("cardImg").classList.add("show");
+          el("cardImg").onerror = () => { /* ignore */ };
+        } else {
+          el("cardImg").classList.remove("show");
+          el("cardImg").removeAttribute("src");
+        }
+
+        // hide overlay and animate card panel
+        setOverlayVisible(false);
+        requestAnimationFrame(() => {
+          el("cardPanel").classList.add("show");
+        });
+
+        el("statusBadge").textContent = `Ready`;
+
+      } catch (err) {
+        // Most likely: no matching creatures for that MV
+        if (err?.status === 404) {
+          showToast(`No matching creatures for MV ${mv}.`);
+        } else {
+          showToast(`Error: ${err?.message || "Something went wrong."}`);
+        }
+        el("statusBadge").textContent = `Ready`;
+      }
+    }
+
+    function buildGrid() {
+      const grid = el("grid");
+      grid.innerHTML = "";
+
+      for (let mv = 1; mv <= MAX_MV; mv++) {
+        const b = document.createElement("button");
+        b.className = "mvBtn";
+        b.type = "button";
+        b.textContent = String(mv);
+        b.dataset.mv = String(mv);
+
+        b.addEventListener("click", () => summon(mv));
+        grid.appendChild(b);
+      }
+    }
+
+    function applyAvailabilityTint(map) {
+      for (let mv = 1; mv <= MAX_MV; mv++) {
+        const btn = document.querySelector(`.mvBtn[data-mv="${mv}"]`);
+        if (!btn) continue;
+        const ok = map?.[mv] === true;
+        btn.classList.toggle("noMatch", !ok);
+      }
+    }
+
+    function readAvailabilityCache() {
+      try {
+        const raw = localStorage.getItem(AVAIL_CACHE_KEY);
+        if (!raw) return null;
+        const obj = JSON.parse(raw);
+        if (!obj || typeof obj !== "object") return null;
+        if (!obj.ts || !obj.map) return null;
+        if ((Date.now() - obj.ts) > AVAIL_CACHE_TTL_MS) return null;
+        return obj.map;
+      } catch {
+        return null;
+      }
+    }
+
+    function writeAvailabilityCache(map) {
+      try {
+        localStorage.setItem(AVAIL_CACHE_KEY, JSON.stringify({ ts: Date.now(), map }));
+      } catch { /* ignore */ }
+    }
+
+    async function checkAvailability() {
+      // Use cache first
+      const cached = readAvailabilityCache();
+      if (cached) {
+        applyAvailabilityTint(cached);
+        el("statusBadge").textContent = "Ready";
+        // Still refresh in background (auto-updates)
+        refreshAvailabilityInBackground();
+        return;
+      }
+      await refreshAvailabilityInForeground();
+    }
+
+    async function refreshAvailabilityInForeground() {
+      el("statusBadge").textContent = "Checking available MVs…";
+
+      const map = {};
+      const tasks = [];
+      for (let mv = 1; mv <= MAX_MV; mv++) {
+        tasks.push(
+          fetch(buildSearchUrl(mv))
+            .then(r => r.json().catch(() => null).then(j => ({ ok: r.ok, j })))
+            .then(({ ok, j }) => {
+              // If search is OK and total_cards > 0, it exists
+              map[mv] = !!(ok && j && typeof j.total_cards === "number" && j.total_cards > 0);
+            })
+            .catch(() => { map[mv] = false; })
+        );
+      }
+
+      await Promise.allSettled(tasks);
+      writeAvailabilityCache(map);
+      applyAvailabilityTint(map);
+      el("statusBadge").textContent = "Ready";
+    }
+
+    async function refreshAvailabilityInBackground() {
+      // Silent background refresh (no status spam)
+      const map = {};
+      const tasks = [];
+      for (let mv = 1; mv <= MAX_MV; mv++) {
+        tasks.push(
+          fetch(buildSearchUrl(mv))
+            .then(r => r.json().catch(() => null).then(j => ({ ok: r.ok, j })))
+            .then(({ ok, j }) => {
+              map[mv] = !!(ok && j && typeof j.total_cards === "number" && j.total_cards > 0);
+            })
+            .catch(() => { map[mv] = false; })
+        );
+      }
+
+      await Promise.allSettled(tasks);
+      writeAvailabilityCache(map);
+      applyAvailabilityTint(map);
+    }
+
+    function wireButtons() {
+      el("backBtn").addEventListener("click", () => {
+        setOverlayVisible(true);
+      });
+
+      el("refreshBtn").addEventListener("click", () => {
+        if (lastMv == null) {
+          showToast("Pick a mana value first.");
+          setOverlayVisible(true);
+          return;
+        }
+        summon(lastMv);
+      });
+
+      el("copyBtn").addEventListener("click", async () => {
+        const name = el("cardName").textContent || "";
+        if (!name || name === "Summon a creature") {
+          showToast("Nothing to copy yet.");
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(name);
+          showToast("Copied card name.");
+        } catch {
+          showToast("Copy failed (clipboard not available).");
+        }
+      });
+    }
+
+    function init() {
+      buildGrid();
+      resetCardUI();
+      wireButtons();
+      checkAvailability();
+      // Start with overlay visible
+      setOverlayVisible(true);
+      // Slight entrance animation
+      requestAnimationFrame(() => el("cardPanel").classList.add("show"));
+    }
+
+    document.addEventListener("DOMContentLoaded", init, false);
+  </script>
+</body>
+</html>
